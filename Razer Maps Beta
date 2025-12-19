@@ -1,0 +1,140 @@
+const { app, BrowserWindow, ipcMain } = require('electron');
+
+function createWindow() {
+    const win = new BrowserWindow({
+        width: 1200,
+        height: 900,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false
+        }
+    });
+
+    // This creates the entire HTML/CSS/JS interface in one go
+    const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>D&D Desktop Map Maker</title>
+        <style>
+            body { font-family: sans-serif; display: flex; flex-direction: column; height: 100vh; margin: 0; background: #2c3e50; color: white; }
+            #toolbar { background: #1a252f; padding: 15px; display: flex; gap: 15px; align-items: center; border-bottom: 2px solid #34495e; }
+            canvas { background: white; cursor: crosshair; margin: auto; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+            button { padding: 8px 15px; cursor: pointer; background: #3498db; border: none; color: white; border-radius: 4px; font-weight: bold; }
+            button:hover { background: #2980b9; }
+            select { padding: 8px; border-radius: 4px; }
+            .label { font-size: 14px; font-weight: bold; }
+        </style>
+    </head>
+    <body>
+        <div id="toolbar">
+            <span class="label">TOOLS:</span>
+            <button onclick="setBrush('#777777')">Dungeon Wall</button>
+            <button onclick="setBrush('#4d9221')">Grass</button>
+            <button onclick="setBrush('#2166ac')">Water</button>
+            <div style="flex-grow: 1;"></div>
+            <button onclick="saveAsPNG()" style="background: #27ae60;">Save PNG</button>
+            <select id="printScale">
+                <option value="cm">1 cm / Tile</option>
+                <option value="1in">1 inch / Tile</option>
+                <option value="1.5in">1.5 inch / Tile</option>
+            </select>
+            <button onclick="handlePrint()" style="background: #e67e22;">Print Multi-Page</button>
+        </div>
+        
+        <canvas id="mapCanvas"></canvas>
+
+        <script>
+            const canvas = document.getElementById('mapCanvas');
+            const ctx = canvas.getContext('2d');
+            const TILE_SIZE = 32;
+            const ROWS = 40;
+            const COLS = 60;
+            
+            canvas.width = COLS * TILE_SIZE;
+            canvas.height = ROWS * TILE_SIZE;
+
+            let mapData = Array(ROWS).fill().map(() => Array(COLS).fill('#ffffff'));
+            let currentBrush = '#777777';
+
+            function setBrush(color) { currentBrush = color; }
+
+            function draw() {
+                for (let r = 0; r < ROWS; r++) {
+                    for (let c = 0; c < COLS; c++) {
+                        ctx.fillStyle = mapData[r][c];
+                        ctx.fillRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                        ctx.strokeStyle = '#ddd';
+                        ctx.strokeRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    }
+                }
+            }
+
+            canvas.addEventListener('mousedown', paint);
+            function paint(e) {
+                const rect = canvas.getBoundingClientRect();
+                const col = Math.floor((e.clientX - rect.left) / TILE_SIZE);
+                const row = Math.floor((e.clientY - rect.top) / TILE_SIZE);
+                if (row >= 0 && row < ROWS && col >= 0 && col < COLS) {
+                    mapData[row][col] = currentBrush;
+                    draw();
+                }
+            }
+
+            function saveAsPNG() {
+                const link = document.createElement('a');
+                link.download = 'dnd-map.png';
+                link.href = canvas.toDataURL();
+                link.click();
+            }
+
+            function handlePrint() {
+                const scale = document.getElementById('printScale').value;
+                let ppi = 96; // Standard pixels per inch
+                let tileSizePx = ppi; // Default 1 inch
+                
+                if(scale === 'cm') tileSizePx = 37.8;
+                if(scale === '1.5in') tileSizePx = 144;
+
+                const printWin = window.open('', '_blank');
+                printWin.document.write(\`
+                    <html>
+                    <style>
+                        body { margin: 0; }
+                        .print-grid { 
+                            display: grid; 
+                            grid-template-columns: repeat(\${COLS}, \${tileSizePx}px); 
+                        }
+                        .tile { 
+                            width: \${tileSizePx}px; 
+                            height: \${tileSizePx}px; 
+                            border: 0.1pt solid #ccc;
+                            page-break-inside: avoid;
+                        }
+                        @media print {
+                            .tile { -webkit-print-color-adjust: exact; }
+                        }
+                    </style>
+                    <body><div class="print-grid">\`);
+                
+                for (let r = 0; r < ROWS; r++) {
+                    for (let c = 0; c < COLS; c++) {
+                        printWin.document.write(\`<div class="tile" style="background:\${mapData[r][c]}"></div>\`);
+                    }
+                }
+                
+                printWin.document.write(\`</div></body></html>\`);
+                printWin.document.close();
+                printWin.print();
+            }
+
+            draw();
+        </script>
+    </body>
+    </html>
+    `;
+
+    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
+}
+
+app.whenReady().then(createWindow);
